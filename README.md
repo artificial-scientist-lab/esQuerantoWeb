@@ -178,3 +178,12 @@ The persistent-memory curve should consequently be interpreted as a theoretical 
 [3] JAX Developers,  
 “Automatic differentiation,” *JAX Documentation*.  
 [https://docs.jax.dev/](https://docs.jax.dev/)
+
+## Citation
+
+To reference esQueranto, please cite:
+
+> Artificial Scientist Lab, *esQueranto: A differentiable tool for the
+> simulation and optimization of quantum experiments*, GitHub repository,
+> 2026.  
+> https://github.com/artificial-scientist-lab/esQuerantoWeb
