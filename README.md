@@ -1,154 +1,180 @@
-# esQueranto website
+# esQueranto
 
-**esQueranto** is a JAX-based framework for the differentiable simulation and optimization of quantum-optical experiments. It uses JAX to combine automatic differentiation, compiled execution, vectorized numerical operations, and GPU acceleration [1,2].
+**esQueranto** is a JAX-based framework for the differentiable simulation and optimization of quantum experiments.
 
-The source code is not currently public. Nevertheless, its computational performance is demonstrated through a simple and reproducible task: optimizing a parameterized optical circuit to rediscover a discrete Fourier-transform unitary.
+The source code is not currently public. Nevertheless, we present its computational performance on a simple reference task whose mathematical definition is fully specified: optimizing a parameterized optical circuit to rediscover a discrete Fourier-transform unitary.
 
-## Fourier-transform optimization
+The results illustrate two important computational aspects of differentiable quantum simulation:
 
-We consider a rectangular Clements interferometer acting on (M) optical modes [3]. It contains
+- the time required to evaluate gradients;
+- the GPU memory required to represent and manipulate multiphoton quantum states.
 
-[
-\frac{M(M-1)}{2}
-]
+## Fourier-transform reconstruction
 
-generalized beam splitters, each controlled by two real parameters, followed by (M) output phases. The complete circuit therefore contains
+We consider a rectangular Clements interferometer acting on `M` optical modes [1].
 
-[
-2\frac{M(M-1)}{2}+M=M^2
-]
+The interferometer contains:
 
-real parameters.
+```text
+M(M - 1) / 2
+```
 
-The circuit is optimized to reproduce the (M)-dimensional discrete Fourier transform
+generalized beam splitters. Each beam splitter is controlled by two real parameters, and the circuit includes `M` additional output phases.
 
-[
-(F_M)_{jk}
-==========
+The total number of real optical parameters is therefore:
 
-\frac{1}{\sqrt M}
-\exp\left(\frac{2\pi i jk}{M}\right).
-]
+```text
+2 × M(M - 1) / 2 + M = M²
+```
 
-Given the parameterized unitary (U(\boldsymbol{\theta})), the objective function is
+The objective is to optimize the circuit unitary `U(theta)` so that it reproduces the `M`-dimensional discrete Fourier transform `F_M`, whose matrix elements are:
 
-[
-\mathcal L_U(\boldsymbol{\theta})
-=================================
+```text
+(F_M)[j,k] = exp(2 pi i j k / M) / sqrt(M)
+```
 
-\frac{\left\lVert
-U(\boldsymbol{\theta})-F_M
-\right\rVert_F^2}{2M}.
-]
+for `j, k = 0, ..., M - 1`.
 
-This provides a controlled benchmark for evaluating the cost of differentiating through increasingly large quantum-optical circuits.
+The loss is the normalized squared Frobenius distance between the generated and target unitaries:
+
+```text
+L(theta) = ||U(theta) - F_M||²_F / (2M)
+```
+
+The task is deliberately simple: its purpose is not to demonstrate a new optical design, but to provide a controlled benchmark of the differentiable simulation.
 
 ## Gradient-evaluation time
 
 We measure the time required to evaluate the loss and its gradient while varying:
 
-* the number of optical modes (M);
-* the number of trainable circuit parameters.
+- the number of modes `M`;
+- the number of trainable optical parameters.
 
-For a scalar loss, JAX uses reverse-mode automatic differentiation to obtain the derivatives with respect to all trainable parameters through a single reverse pass, rather than performing an independent circuit simulation for every parameter.
+JAX uses reverse-mode automatic differentiation to compute the gradient of a scalar loss. The different components of the gradient are obtained through a common backward pass, rather than through an independent circuit evaluation for every parameter.
 
-Consequently, increasing the number of trainable parameters does not necessarily produce a proportional increase in evaluation time. JAX’s compiled and vectorized array operations further reduce the overhead associated with processing many parameters simultaneously.
+Together with JIT compilation and accelerator-oriented array operations, this explains why increasing the number of trainable parameters does not produce a proportional increase in evaluation time.
 
-The evaluation time nevertheless increases with (M), since larger circuits contain more optical elements and require a larger computational graph.
+The dominant increase is instead associated with `M`, since larger interferometers contain more optical elements and require larger forward and backward computations.
 
-## GPU memory requirements
+<p align="center">
+  <img
+    src="figures/gradient_time.png"
+    alt="Average gradient-evaluation time as a function of the number of trainable parameters for different numbers of optical modes."
+    width="900"
+  >
+</p>
 
-Execution time is only one limitation of differentiable quantum simulation. GPU memory becomes increasingly important when the number of photons is increased.
+<p align="center">
+  <em>
+    Figure 1. Average gradient-evaluation time as the number of trainable
+    parameters increases. Each curve corresponds to a different number of
+    optical modes M.
+  </em>
+</p>
 
-For (N) indistinguishable photons distributed among (M) optical modes, the dimension of the fixed-(N) Fock sector is
+The approximately flat curves show that, for a fixed circuit size, evaluating additional gradient components introduces comparatively little overhead. This behavior is specific to the adopted JAX implementation and should not be interpreted as a universal parameter-independent scaling law.
 
-[
-D_{N,M}
-=======
+## Multiphoton state-space growth
 
-{N+M-1\choose N}.
-]
+Evaluation time is not the only computational limitation. As the number of photons increases, GPU memory can become the dominant constraint.
 
-When all photon-number sectors from the vacuum up to (N) are stored, the total number of represented basis states is
+For exactly `N` indistinguishable photons distributed among `M` optical modes, the possible kets are occupation-number states of the form:
 
-[
-D_{\leq N,M}
-============
+```text
+|n_1, n_2, ..., n_M>
+```
 
-# \sum_{n=0}^{N}{n+M-1\choose n}
+subject to:
 
-{N+M\choose N}.
-]
+```text
+n_1 + n_2 + ... + n_M = N
+```
 
-In the following memory estimate, we denote the number of stored basis states by (D). Thus,
+The number of possible kets is:
 
-[
-D=D_{N,M}
-]
+```text
+D(N,M) = binomial(N + M - 1, N)
+```
 
-for a fixed-photon-number representation, or
+Each ket is represented by:
 
-[
-D=D_{\leq N,M}
-]
+- `M` occupation numbers stored as `int32`;
+- one complex amplitude stored as `complex128`.
 
-when every sector up to (N) is retained.
+An `int32` value requires 4 bytes, so the occupation vector of one ket requires:
 
-Assuming that each basis state is represented by
+```text
+4M bytes
+```
 
-* one `complex128` amplitude, requiring (16) bytes;
-* an occupation vector containing (M) `int32` indices, requiring (4M) bytes;
+A `complex128` amplitude requires:
 
-the persistent memory required for the amplitudes is
+```text
+16 bytes
+```
 
-[
-B_{\mathrm{amplitudes}}=16D,
-]
+The persistent memory required for one ket is therefore:
 
-while the memory required for the basis-state indices is
+```text
+4M + 16 bytes
+```
 
-[
-B_{\mathrm{indices}}=4MD.
-]
+The total persistent memory required to store the complete quantum state is:
 
-The total persistent memory is therefore
+```text
+B_persistent(N,M)
+    = D(N,M) × (4M + 16) bytes
+```
 
-[
-\boxed{
-B_{\mathrm{persistent}}
-=======================
+or, explicitly:
 
-D(16+4M)\ \text{bytes}
-}
-]
+```text
+B_persistent(N,M)
+    = binomial(N + M - 1, N) × (4M + 16) bytes
+```
 
-or, in gibibytes,
+In decimal gigabytes:
 
-[
-B_{\mathrm{persistent}}^{(\mathrm{GiB})}
-========================================
+```text
+B_persistent_GB(N,M)
+    = binomial(N + M - 1, N) × (4M + 16) / 10^9
+```
 
-\frac{D(16+4M)}{2^{30}}.
-]
+<p align="center">
+  <img
+    src="figures/persistent_memory.png"
+    alt="Persistent memory required to represent N-photon states in M optical modes."
+    width="900"
+  >
+</p>
 
-This estimate represents only the memory needed to retain the quantum state and its basis description.
+<p align="center">
+  <em>
+    Figure 2. Theoretical persistent memory required to store all fixed-N
+    Fock states, assuming M int32 occupation numbers and one complex128
+    amplitude for every ket.
+  </em>
+</p>
 
-The actual peak GPU memory is larger. Applying quantum operations creates temporary output arrays and intermediate quantities, while reverse-mode differentiation may retain additional values and cotangents required during the backward pass. Compiler workspaces and memory-allocation overhead can further increase the peak.
+This estimate includes only the persistent representation of the quantum state: the stored occupation vectors and their amplitudes.
 
-The peak memory therefore depends not only on (M) and (N), but also on the sequence of quantum operations and the differentiation strategy. It must be measured during execution and cannot, in general, be inferred from the persistent-state size alone.
+The actual peak GPU memory is higher. Simulated quantum operations may temporarily create additional states, transformed amplitudes, index arrays, masks, and other intermediate quantities. Reverse-mode differentiation also requires values and cotangents from the forward computation to be retained or recomputed during the backward pass.
 
-Together, the reported results show how the computational requirements of differentiable quantum-optical optimization are governed by two complementary limits:
+Peak memory therefore depends not only on `N` and `M`, but also on the sequence of quantum operations, the differentiation procedure, and the compiler's memory-management strategy.
 
-[
-\boxed{\text{gradient-evaluation time}}
-\qquad\text{and}\qquad
-\boxed{\text{peak GPU memory}}.
-]
+The persistent-memory curve should consequently be interpreted as a theoretical baseline rather than as the total GPU memory required to execute the simulation.
 
 ## References
 
-[1] J. Bradbury, R. Frostig, P. Hawkins, M. J. Johnson, C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, and Q. Zhang, *JAX: Composable Transformations of Python+NumPy Programs*, 2018.
+[1] W. R. Clements, P. C. Humphreys, B. J. Metcalf, W. S. Kolthammer, and I. A. Walmsley,  
+“Optimal design for universal multiport interferometers,”  
+*Optica* **3**, 1460–1465 (2016).  
+[https://doi.org/10.1364/OPTICA.3.001460](https://doi.org/10.1364/OPTICA.3.001460)
 
-[2] JAX Developers, *JAX Documentation: High-Performance Array Computing and Automatic Differentiation*.
+[2] J. Bradbury et al.,  
+“JAX: Composable transformations of Python and NumPy programs,” 2018.  
+[https://github.com/jax-ml/jax](https://github.com/jax-ml/jax)
 
-[3] W. R. Clements, P. C. Humphreys, B. J. Metcalf, W. S. Kolthammer, and I. A. Walmsley, “Optimal design for universal multiport interferometers,” *Optica* **3**, 1460–1465 (2016). DOI: 10.1364/OPTICA.3.001460.
+[3] JAX Developers,  
+“Automatic differentiation,” *JAX Documentation*.  
+[https://docs.jax.dev/](https://docs.jax.dev/)
