@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "If you use esQueranto, please cite it using these metadata."
+title: "esQueranto: A differentiable tool for the simulation and optimization of quantum experiments"
+type: software
+authors:
+  - name: "Artificial Scientist Lab"
+date-released: "2026-07-27"
+url: "https://github.com/artificial-scientist-lab/esQuerantoWeb"
