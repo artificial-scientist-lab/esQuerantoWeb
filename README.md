@@ -1,17 +1,17 @@
 # esQueranto
 
-**esQueranto** is a JAX-based framework for the differentiable simulation and optimization of quantum experiments.
+**esQueranto** is a JAX-based framework for the differentiable simulation and optimization of quantum experiments. It has been used to discover new high-probability schemes for entanglement generation and multiphoton-state preparation [1,2].
 
-The source code is not currently public. Nevertheless, we present its computational performance on a simple reference task whose mathematical definition is fully specified: optimizing a parameterized optical circuit to rediscover a discrete Fourier-transform unitary.
+The source code is not currently public. Nevertheless, we present its computational performance on a simple reference task whose mathematical definition is fully specified: optimizing a parameterized optical circuit to reconstruct a discrete Fourier-transform unitary.
 
-The results illustrate two important computational aspects of differentiable quantum simulation:
+The benchmark illustrates two important computational aspects of differentiable quantum simulation:
 
-- the time required to evaluate gradients;
-- the GPU memory required to represent and manipulate multiphoton quantum states.
+* the time required to evaluate gradients;
+* the GPU memory required to represent and manipulate multiphoton quantum states.
 
 ## Fourier-transform reconstruction
 
-We consider a rectangular Clements interferometer acting on `M` optical modes [1].
+We consider a rectangular Clements interferometer acting on `M` optical modes [3].
 
 The interferometer contains:
 
@@ -19,7 +19,7 @@ The interferometer contains:
 M(M - 1) / 2
 ```
 
-generalized beam splitters. Each beam splitter is controlled by two real parameters, and the circuit includes `M` additional output phases.
+generalized beam splitters. Each beam splitter is controlled by two real parameters, and the circuit contains `M` additional output phases.
 
 The total number of real optical parameters is therefore:
 
@@ -41,20 +41,20 @@ The loss is the normalized squared Frobenius distance between the generated and 
 L(theta) = ||U(theta) - F_M||²_F / (2M)
 ```
 
-The task is deliberately simple: its purpose is not to demonstrate a new optical design, but to provide a controlled benchmark of the differentiable simulation.
+The task is deliberately simple. Its purpose is not to demonstrate a new optical design, but to provide a controlled benchmark for the differentiable simulation and optimization pipeline.
 
 ## Gradient-evaluation time
 
 We measure the time required to evaluate the loss and its gradient while varying:
 
-- the number of modes `M`;
-- the number of trainable optical parameters.
+* the number of optical modes `M`;
+* the number of trainable optical parameters.
 
-JAX uses reverse-mode automatic differentiation to compute the gradient of a scalar loss. The different components of the gradient are obtained through a common backward pass, rather than through an independent circuit evaluation for every parameter.
+JAX uses reverse-mode automatic differentiation to compute the gradient of a scalar loss [4,5]. The different components of the gradient are obtained through a shared backward pass, rather than through an independent circuit evaluation for each parameter.
 
-Together with JIT compilation and accelerator-oriented array operations, this explains why increasing the number of trainable parameters does not produce a proportional increase in evaluation time.
+Together with just-in-time compilation and accelerator-oriented array operations, this explains why increasing the number of trainable parameters does not produce a proportional increase in evaluation time.
 
-The dominant increase is instead associated with `M`, since larger interferometers contain more optical elements and require larger forward and backward computations.
+The dominant increase is instead associated with `M`, because larger interferometers contain more optical elements and require larger forward and backward computations.
 
 <p align="center">
   <img
@@ -76,7 +76,7 @@ The approximately flat curves show that, for a fixed circuit size, evaluating ad
 
 ## Multiphoton state-space growth
 
-Evaluation time is not the only computational limitation. As the number of photons increases, GPU memory can become the dominant constraint.
+Evaluation time is not the only computational limitation. As the number of photons and optical modes increases, GPU memory can become the dominant constraint.
 
 For exactly `N` indistinguishable photons distributed among `M` optical modes, the possible kets are occupation-number states of the form:
 
@@ -90,18 +90,18 @@ subject to:
 n_1 + n_2 + ... + n_M = N
 ```
 
-The number of possible kets is:
+The dimension of the corresponding fixed-photon-number Hilbert space is:
 
 ```text
 D(N,M) = binomial(N + M - 1, N)
 ```
 
-Each ket is represented by:
+In the representation considered here, each ket is stored using:
 
-- `M` occupation numbers stored as `int32`;
-- one complex amplitude stored as `complex128`.
+* `M` occupation numbers represented as `int32`;
+* one complex amplitude represented as `complex128`.
 
-An `int32` value requires 4 bytes, so the occupation vector of one ket requires:
+An `int32` value requires 4 bytes, so the occupation vector associated with one ket requires:
 
 ```text
 4M bytes
@@ -133,7 +133,7 @@ B_persistent(N,M)
     = binomial(N + M - 1, N) × (4M + 16) bytes
 ```
 
-In decimal gigabytes:
+Expressed in decimal gigabytes:
 
 ```text
 B_persistent_GB(N,M)
@@ -152,32 +152,41 @@ B_persistent_GB(N,M)
   <em>
     Figure 2. Theoretical persistent memory required to store all fixed-N
     Fock states, assuming M int32 occupation numbers and one complex128
-    amplitude for every ket.
+    amplitude for each ket.
   </em>
 </p>
 
-This estimate includes only the persistent representation of the quantum state: the stored occupation vectors and their amplitudes.
+This estimate includes only the persistent representation of the quantum state: the stored occupation vectors and their associated amplitudes.
 
-The actual peak GPU memory is higher. Simulated quantum operations may temporarily create additional states, transformed amplitudes, index arrays, masks, and other intermediate quantities. Reverse-mode differentiation also requires values and cotangents from the forward computation to be retained or recomputed during the backward pass.
+The actual peak GPU-memory consumption is higher. Simulated quantum operations may temporarily create additional states, transformed amplitudes, index arrays, masks, and other intermediate quantities. Reverse-mode differentiation also requires values and cotangents from the forward computation to be retained or recomputed during the backward pass.
 
 Peak memory therefore depends not only on `N` and `M`, but also on the sequence of quantum operations, the differentiation procedure, and the compiler's memory-management strategy.
 
-The persistent-memory curve should consequently be interpreted as a theoretical baseline rather than as the total GPU memory required to execute the simulation.
+The persistent-memory curve should consequently be interpreted as a theoretical baseline, rather than as the total GPU memory required to execute the simulation.
 
 ## References
 
-[1] W. R. Clements, P. C. Humphreys, B. J. Metcalf, W. S. Kolthammer, and I. A. Walmsley,  
-“Optimal design for universal multiport interferometers,”  
-*Optica* **3**, 1460–1465 (2016).  
-[https://doi.org/10.1364/OPTICA.3.001460](https://doi.org/10.1364/OPTICA.3.001460)
+[1] M. Armezzani *et al.*,
+“Automated discovery of high-probability heralded schemes for path-entangled states,”
+*arXiv preprint* arXiv:2607.25501 (2026).
+https://doi.org/10.48550/arXiv.2607.25501
 
-[2] J. Bradbury et al.,  
-“JAX: Composable transformations of Python and NumPy programs,” 2018.  
-[https://github.com/jax-ml/jax](https://github.com/jax-ml/jax)
+[2] C. Ruiz-Gonzalez *et al.*,
+*arXiv preprint* arXiv:2605.02721 (2026).
+https://doi.org/10.48550/arXiv.2605.02721
 
-[3] JAX Developers,  
-“Automatic differentiation,” *JAX Documentation*.  
-[https://docs.jax.dev/](https://docs.jax.dev/)
+[3] W. R. Clements, P. C. Humphreys, B. J. Metcalf, W. S. Kolthammer, and I. A. Walmsley,
+“Optimal design for universal multiport interferometers,”
+*Optica* **3**, 1460–1465 (2016).
+https://doi.org/10.1364/OPTICA.3.001460
+
+[4] J. Bradbury *et al.*,
+“JAX: Composable transformations of Python and NumPy programs,” 2018.
+https://github.com/jax-ml/jax
+
+[5] JAX Developers,
+“Automatic differentiation,” *JAX Documentation*.
+https://docs.jax.dev/en/latest/automatic-differentiation.html
 
 ## Citation
 
@@ -185,5 +194,5 @@ To reference esQueranto, please cite:
 
 > Artificial Scientist Lab, *esQueranto: A differentiable tool for the
 > simulation and optimization of quantum experiments*, GitHub repository,
-> 2026.  
+> 2026.
 > https://github.com/artificial-scientist-lab/esQuerantoWeb
